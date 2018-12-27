@@ -18,6 +18,7 @@ import android.widget.Toast;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
@@ -47,7 +48,7 @@ public class MainActivity extends AppCompatActivity {
                     else if(BluetoothDevice.ACTION_FOUND.equals(action)) {
                         BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                         String deviceName = device.getName();
-                        if (((EditText) findViewById(R.id.deviceName)).getText().toString().equals(deviceName)) {
+                        if (Arrays.asList(((EditText) findViewById(R.id.deviceName)).getText().toString().split("\\s*,\\s*")).contains(deviceName)) {
                             DEVICE_FOUND = true;
                             startApplication();
                         }
