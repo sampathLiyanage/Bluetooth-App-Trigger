@@ -1,78 +1,84 @@
 package com.example.buddhika.carapp;
 
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
-import android.content.BroadcastReceiver;
-import android.content.Context;
+import android.Manifest;
 import android.content.Intent;
-import android.content.IntentFilter;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.support.v7.app.AppCompatActivity;
-import android.widget.ArrayAdapter;
-import android.widget.AutoCompleteTextView;
-import android.widget.EditText;
+import android.app.Activity;
+import android.content.Context;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.support.v4.app.ActivityCompat;
+import android.widget.TextView;
+
+import android.util.Log;
 import android.widget.Toast;
 
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
 
-public class MainActivity extends AppCompatActivity {
-    protected static boolean DEVICE_FOUND = false;
-    private BroadcastReceiver blueReceiver;
+public class MainActivity extends Activity implements LocationListener {
+    protected LocationManager locationManager;
+    protected LocationListener locationListener;
+    protected Context context;
+    TextView txtLat;
+    String lat;
+    String provider;
+    protected String latitude, longitude;
+    protected boolean gps_enabled, network_enabled;
+
+    protected boolean stopped = true;
+    Timer timer;
+    TimerTask timerTask;
+
+    static final String APP_TO_CONTROL = "com.happyconz.blackbox";
+    static final int MIN_DISTANCE = 50;
+    static final int MIN_TIME = 900*1000;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        setApplicationList();
-        final BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        if (bluetoothAdapter != null) {
-            blueReceiver = new BroadcastReceiver() {
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    String action = intent.getAction();
-                    if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action)) {
-                        int state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR);
-                        if (state == BluetoothAdapter.STATE_ON) {
-                            DEVICE_FOUND = false;
-                            bluetoothAdapter.startDiscovery();
-                        } else if (state == BluetoothAdapter.STATE_OFF) {
-                            bluetoothAdapter.enable();
-                        }
-                    }
-                    else if(BluetoothDevice.ACTION_FOUND.equals(action)) {
-                        BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
-                        String deviceName = device.getName();
-                        if (Arrays.asList(((EditText) findViewById(R.id.deviceName)).getText().toString().split("\\s*,\\s*")).contains(deviceName)) {
-                            DEVICE_FOUND = true;
-                            startApplication();
-                        }
-                    } else if(BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
-                        setLookupTimeout(bluetoothAdapter);
-                    }
-                }
-            };
+        txtLat = (TextView) findViewById(R.id.textview1);
+        timer = new Timer();
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(MainActivity.this, "Location permission is not given", Toast.LENGTH_LONG).show();
+            return;
         }
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
-        filter.addAction(BluetoothDevice.ACTION_FOUND);
-        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED);
-        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
-        registerReceiver(blueReceiver, filter);
-        if (!bluetoothAdapter.isEnabled()) {
-            bluetoothAdapter.enable();
-        } else {
-            bluetoothAdapter.startDiscovery();
+        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, MIN_TIME, MIN_DISTANCE, this);
+    }
+    @Override
+    public void onLocationChanged(Location location) {
+        txtLat = (TextView) findViewById(R.id.textview1);
+        txtLat.setText("Latitude:" + location.getLatitude() + ", Longitude:" + location.getLongitude());
+        if (stopped) {
+            stopped = false;
+            startApplication();
         }
+        watchForCarStop();
+    }
+
+    @Override
+    public void onProviderDisabled(String provider) {
+        Log.d("Latitude","disable");
+    }
+
+    @Override
+    public void onProviderEnabled(String provider) {
+        Log.d("Latitude","enable");
+    }
+
+    @Override
+    public void onStatusChanged(String provider, int status, Bundle extras) {
+        Log.d("Latitude","status");
     }
 
     protected void startApplication() {
-        Intent launchIntent = getPackageManager().getLaunchIntentForPackage(((AutoCompleteTextView) findViewById(R.id.applicationsAutoComplete)).getText().toString());
+        Intent launchIntent = getPackageManager().getLaunchIntentForPackage(APP_TO_CONTROL);
         if (launchIntent != null) {
             startActivity(launchIntent);
         }
@@ -85,7 +91,7 @@ public class MainActivity extends AppCompatActivity {
             try (DataOutputStream os = new DataOutputStream(suProcess.getOutputStream())) {
                 os.writeBytes("adb shell" + "\n");
                 os.flush();
-                os.writeBytes("am force-stop " + ((AutoCompleteTextView) findViewById(R.id.applicationsAutoComplete)).getText().toString() + "\n");
+                os.writeBytes("am force-stop " + (APP_TO_CONTROL) + "\n");
                 os.flush();
             } catch (Exception e) {
                 Toast.makeText(MainActivity.this, "Root privileges are needed for closing app", Toast.LENGTH_LONG).show();
@@ -93,51 +99,21 @@ public class MainActivity extends AppCompatActivity {
         } catch (IOException e) {
             Toast.makeText(MainActivity.this, "Root privileges are needed for closing app", Toast.LENGTH_LONG).show();
         }
-
     }
 
-    protected void setLookupTimeout(final BluetoothAdapter bluetoothAdapter) {
-        Integer timeout;
-        try {
-            timeout = (Integer.parseInt(((EditText) findViewById(R.id.checkInterval)).getText().toString()));
-        } catch (Exception e) {
-            timeout = 60;
+    protected void watchForCarStop() {
+        if (timerTask != null) {
+            timerTask.cancel();
         }
-
-        new android.os.Handler().postDelayed(
-                new Runnable() {
-                    public void run() {
-
-                        if (!bluetoothAdapter.isEnabled()) {
-                            bluetoothAdapter.enable();
-                        } else {
-                            if (!DEVICE_FOUND) {
-                                killApplication();
-                            }
-                            DEVICE_FOUND = false;
-                            bluetoothAdapter.startDiscovery();
-                        }
-                    }
-                },timeout * 1000);
+        timerTask = new TimerTask() {
+            @Override
+            public void run() {
+                stopped = true;
+                killApplication();
+            }
+        };
+        timer.schedule(timerTask, MIN_TIME);
     }
 
-    protected void setApplicationList() {
-        final PackageManager pm = getPackageManager();
-        List<ApplicationInfo> packages = pm.getInstalledApplications(PackageManager.GET_META_DATA);
-
-        List<String> packageNames = new ArrayList<String>();
-        for (ApplicationInfo packageInfo : packages) {
-            packageNames.add(packageInfo.packageName);
-        }
-        ArrayAdapter<String> applicationSelectorAdaptor = new ArrayAdapter<String>(MainActivity.this,
-                android.R.layout.simple_selectable_list_item, packageNames);
-        AutoCompleteTextView applicationSelector = (AutoCompleteTextView) findViewById(R.id.applicationsAutoComplete);
-        applicationSelector.setAdapter(applicationSelectorAdaptor);
-    }
-
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-        unregisterReceiver(blueReceiver);
-    }
 }
+
