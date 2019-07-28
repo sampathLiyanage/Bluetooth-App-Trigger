@@ -36,7 +36,7 @@ public class MainActivity extends Activity implements LocationListener {
 
     static final String APP_TO_CONTROL = "com.happyconz.blackbox";
     static final int MIN_DISTANCE = 50;
-    static final int MIN_TIME = 900*1000;
+    static final int MIN_TIME = 600*1000;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -44,7 +44,9 @@ public class MainActivity extends Activity implements LocationListener {
         setContentView(R.layout.activity_main);
         txtLat = (TextView) findViewById(R.id.textview1);
         timer = new Timer();
+        killApplication();
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        locationManager.removeUpdates(this);
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(MainActivity.this, "Location permission is not given", Toast.LENGTH_LONG).show();
             return;
@@ -112,7 +114,7 @@ public class MainActivity extends Activity implements LocationListener {
                 killApplication();
             }
         };
-        timer.schedule(timerTask, MIN_TIME);
+        timer.schedule(timerTask, MIN_TIME + ((int) (MIN_TIME * 0.1)));
     }
 
 }
